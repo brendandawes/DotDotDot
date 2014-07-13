@@ -1,0 +1,2726 @@
+/**
+Cinema Redux Version 3.0
+January 2013
+*/
+
+import processing.video.*;
+import javax.swing.*; 
+import controlP5.*;
+import com.avvisoapp.Avviso;
+import java.io.*;
+
+final int DEFAULT_SOURCE_WIDTH = 1021;
+final int DEFAULT_SOURCE_HEIGHT = 576;
+final int FRAMES_PER_SECOND = 25;
+final color BACKGROUND_COLOR = color(150);
+final color GUI_FOREGROUND_COLOR = color(255);
+
+ControlP5 cp5;
+Textarea myTextarea;
+Println console;
+ 
+Movie movie;
+int counter = 0;
+int sourceW = DEFAULT_SOURCE_WIDTH;
+int sourceH = DEFAULT_SOURCE_HEIGHT;
+int x = 0;
+int y = 0;
+int reduxWidth;
+int reduxHeight;
+float reduxPreviewWidth;
+float reduxPreviewHeight;
+int currentFrame = 0;
+int spacing = 0;
+float aspectRatio;
+String selectedPathOfMovie = "";
+
+boolean isCapturing = false;
+
+String reduxFileName;
+
+PFont font;
+
+PGraphics capturedFrame;
+PGraphics redux;
+PGraphics miniredux;
+
+// PROWL
+
+String myApiKey = "626128cc1b4d6a30e6477386a7d304dbc53d4a51";
+String myApplicationName = "Cinema Redux";
+String myEventName = "Print Complete";
+int priority = 0;
+Avviso avviso;
+
+void setup() {
+  
+  size(1000, 900);
+  background(BACKGROUND_COLOR);
+  smooth();
+
+  font = loadFont("Monaco-48.vlw");
+  textFont(font, 11);
+  
+  avviso = new Avviso();
+  avviso.setApiKey(myApiKey);
+  avviso.setApplicationName(myApplicationName);
+
+  initGUI(); 
+  selectFile();
+
+} 
+
+  void draw() {
+    background(BACKGROUND_COLOR);
+
+    if (movieIsReady()) {
+
+      displayMovie();
+  
+      if (isCapturing && capturingNotFinished()) {
+        if (captureCriteriaSatisfied()) {
+          counter = 0;
+          drawFrameIntoCapturedFrame(movie, 0, 0, reduxWidth, reduxHeight);
+          drawFrameIntoReduxImage(movie,x,y,reduxWidth, reduxHeight);
+          updateReduxFramePosition();
+        }
+      } 
+    
+      displayCapturedFrame();
+      displayReduxPreview();
+      updateProgress();
+    }
+}
+
+void movieEvent(Movie m) {
+  m.read();
+  counter++;
+}
+
+boolean captureCriteriaSatisfied() {
+
+  if (counter >= FRAMES_PER_SECOND) {
+    return true;
+  } else {
+    return false;
+  }
+
+}
+
+void initGUI() {
+
+ cp5 = new ControlP5(this);
+ cp5.enableShortcuts();
+  cp5.setAutoInitialization(false);
+  myTextarea = cp5.addTextarea("txt")
+                  .setPosition(10, 550)
+                  .setSize(400, 200)
+                  .setFont(createFont("", 10))
+                  .setLineHeight(14)
+                  .setColor(color(200))
+                  .setColorBackground(color(0, 100))
+                  .setColorForeground(color(255, 100));
+  ;
+
+  console = cp5.addConsole(myTextarea);//
+   // create a new button with name 'buttonA'
+  cp5.addButton("loadMovie")
+     .setValue(0)
+     .setPosition(10,400)
+     .setSize(100,19)
+     .setCaptionLabel("Select Movie");
+     ;
+
+     cp5.addButton("saveReduxImage")
+     .setValue(0)
+     .setPosition(310,400)
+     .setSize(100,19)
+     .setColorBackground(color(0,150,0))
+     .setCaptionLabel("Save Cinema Redux");
+     ;
+/*
+      cp5.addButton("openInQuicktime")
+     .setValue(0)
+     .setPosition(310,450)
+     .setSize(100,19)
+     .setColorBackground(color(0,150,0))
+     .setCaptionLabel("Open in Quicktime");
+     ;
+     */
+      cp5.addButton("playMovie")
+     .setValue(0)
+     .setPosition(10,450)
+     .setSize(100,19)
+     .setCaptionLabel("Play Movie");
+     ;
+     
+      cp5.addButton("startCapture")
+     .setValue(0)
+     .setPosition(10,500)
+     .setSize(100,19)
+     .setColorBackground(color(0))
+     .setCaptionLabel("Start Cinema Redux");
+     ;
+     
+      cp5.addTextfield("movieWidth")
+     .setPosition(150,400)
+     .setSize(100,20)
+     .setFocus(true)
+     .setColor(GUI_FOREGROUND_COLOR)
+     .setAutoClear(false)
+     .setText(String.valueOf(DEFAULT_SOURCE_WIDTH))
+     .setCaptionLabel("Source Width");
+     
+     ;
+     
+      cp5.addTextfield("movieHeight")
+     .setPosition(150,450)
+     .setSize(100,20)
+     .setFocus(false)
+     .setColor(GUI_FOREGROUND_COLOR)
+     .setAutoClear(false)
+     .setText(String.valueOf(DEFAULT_SOURCE_HEIGHT))
+     .setCaptionLabel("Source Height");
+     ;
+     
+      cp5.addTextfield("reduxW")
+     .setPosition(150,500)
+     .setSize(100,20)
+     .setFocus(false)
+     .setColor(GUI_FOREGROUND_COLOR)
+     .setAutoClear(false)
+     .setText("200")
+     .setCaptionLabel("Redux Frame Width");
+     ;
+
+}
+
+/*
+Buttons
+*/
+
+public void loadMovie(int theValue) {
+  if(frameCount >1){
+  selectFile();
+  }
+}
+
+public void playMovie(int theValue) {
+  if(frameCount >1){
+  movie.play();
+  }
+}
+
+public void startCapture(int theValue) {
+  if(frameCount >1){
+    initRedux();
+  }
+}
+
+public void saveReduxImage(int theValue) {
+  if(frameCount >1){
+    saveRedux();
+  }
+}
+
+public void openInQuicktime(int theValue) {
+  if(frameCount >1){
+    String[] params = { "-a","/Applications/QuickTime\\ Player.app","/Users/brendandawes/Desktop/Breakfast\\ at\\ Tiffany\'s.mp4"};
+    open(params);
+  }
+}
+
+
+void selectFile() {
+ try { 
+  UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName()); 
+} catch (Exception e) { 
+  e.printStackTrace();  
+}  
+final JFileChooser fc = new JFileChooser(); 
+int chosenFile = fc.showOpenDialog(this); 
+if (chosenFile == JFileChooser.APPROVE_OPTION) { 
+    File file = fc.getSelectedFile(); 
+    initializeMovieWithFile(file.getPath());     
+  } else {
+  
+  }
+  
+}
+
+/**
+Initialize the movie
+*/
+
+void initializeMovieWithFile(String filePath){
+  movie = null;
+  movie = new Movie(this, filePath);
+  movie.play();
+  setSourceWidth(movie.width);
+  setSourceHeight(movie.height);
+  movie.pause();
+  setMovieFileNameUsingFilePath(filePath);
+  
+}
+
+void setMovieFileNameUsingFilePath(String filePath) {
+  
+  int i = filePath.lastIndexOf("/");
+  int j = filePath.lastIndexOf(".");
+  reduxFileName = "cinemaredux_"+filePath.substring(i+1,j)+".tif";
+  
+  
+}
+
+void setSourceWidth(int w){
+
+  cp5.get(Textfield.class,"movieWidth").setText(String.valueOf(w));
+
+}
+
+int getSourceWidth() {
+
+  return int(cp5.get(Textfield.class,"movieWidth").getText());
+}
+
+
+void setSourceHeight(int h){
+
+  cp5.get(Textfield.class,"movieHeight").setText(String.valueOf(h));
+}
+
+int getSourceHeight(){
+
+  return int(cp5.get(Textfield.class,"movieHeight").getText());
+}
+
+int getMovieDisplayWidth() {
+
+  return max(400,getSourceWidth()/3);
+
+}
+
+int getMovieDisplayHeight() {
+
+  return int(getMovieDisplayWidth()/getAspectRatio());
+}
+
+void setAspectRatio() {
+  
+  aspectRatio = sourceW/sourceH;
+}
+
+float getAspectRatio(){
+
+  return float(getSourceWidth())/float(getSourceHeight());
+}
+
+
+
+void updateProgress() {
+  
+ drawProgressBar();
+ int percent = int((100.0/(movie.duration ()-1))*movie.time());
+ if (isCapturing) {
+ 
+   if (percent >= 100) {
+        saveRedux();
+        movie.pause();
+        isCapturing = false;
+        sendPush(reduxFileName);
+      }
+
+  
+}
+
+}
+
+void updateConsoleMessage(String msg){
+  console.play();
+  println(msg);
+}
+
+void drawProgressBar() {
+
+  fill(30);
+  noStroke();
+  rect(0,height-20,width,20);
+  fill(100);
+  rect(0,height-20,(width/(movie.duration()-1))*movie.time(),20);
+
+}
+
+
+
+
+void initRedux() {
+  isCapturing = false;
+  movie.play();
+  x = 0;
+  y = 0;
+  reduxWidth = int(cp5.get(Textfield.class,"reduxW").getText());
+  reduxHeight = int(reduxWidth/getAspectRatio());
+  spacing  = floor(reduxHeight/1.5);
+  y = spacing;
+  initCapturedFrame();
+  int rows = ceil(movie.duration()/60);
+  initReduxImage(rows);
+  reduxPreviewWidth = redux.width/30.0;
+  reduxPreviewHeight = redux.height/30.0;
+  writeLogFile(rows);
+  isCapturing = true;
+}
+
+void initCapturedFrame() {
+  if(capturedFrame != null) {
+    capturedFrame = null;
+  }
+  capturedFrame = createGraphics(reduxWidth, reduxHeight);
+  capturedFrame.beginDraw();
+  capturedFrame.background(0);
+  capturedFrame.endDraw();
+
+}
+
+void initReduxImage(int rows) {
+  if (redux != null) {
+    redux = null;
+  }
+  redux = createGraphics(reduxWidth*60, (reduxHeight+spacing)*rows);
+  redux.beginDraw();
+  redux.background(0);
+  redux.endDraw();
+
+}
+
+
+
+public void clear() {
+  cp5.get(Textfield.class,"textValue").clear();
+}
+
+public void controlEvent(ControlEvent theEvent) {
+  println(theEvent.getController().getName());
+  if(theEvent.isAssignableFrom(Textfield.class)) {
+   String name = theEvent.getName();
+   if (name == "movieWidth") sourceW = int(theEvent.getStringValue());
+   if (name == "movieHeight") sourceH = int(theEvent.getStringValue());
+   if (name == "reduxW") reduxWidth = int(theEvent.getStringValue());
+   
+   
+    
+  }
+  
+}
+
+void drawFrameIntoReduxImage(Movie m, int xPos, int yPos, int w, int h ) {
+
+  m.read();
+  redux.beginDraw();
+  redux.smooth();
+  redux.image(m,xPos,yPos,w,h);
+  redux.endDraw();
+
+}
+
+void drawFrameIntoCapturedFrame(Movie m, int xPos, int yPos, int w, int h) {
+
+  m.read();
+  capturedFrame.beginDraw();
+  capturedFrame.smooth();
+  capturedFrame.image(m,xPos,yPos,w,h);
+  capturedFrame.endDraw();
+
+}
+
+boolean movieIsReady() {
+
+  if (movie != null) {
+      return true;
+    } else {
+      return false;
+    }
+
+
+}
+
+void displayMovie() {
+
+  image(movie, 10, 10, getMovieDisplayWidth(), getMovieDisplayHeight());
+
+}
+
+void displayCapturedFrame() {
+
+   if (capturedFrame != null){
+        image(capturedFrame, 10, 20+getMovieDisplayHeight(), reduxWidth,reduxHeight);
+      }
+}
+
+void displayReduxPreview() {
+
+  if (redux != null) {
+          image(redux, (width-10)-(reduxPreviewWidth),10,reduxPreviewWidth,reduxPreviewHeight);
+      }
+}
+
+void writeLogFile(int rows) {
+  
+  updateConsoleMessage("Cinema Redux starting for "+reduxFileName);
+  updateConsoleMessage("Rows/minutes: "+rows);
+  updateConsoleMessage("Print size at 300dpi: "+(reduxWidth*60)/300+" X "+((reduxHeight+spacing)*rows)/300);
+  PrintWriter output = createWriter(reduxFileName+"_info.txt"); 
+  output.println("Cinema Redux");
+  output.println(reduxFileName);
+  output.println("_______________________________________________________________________________");
+  output.println("");
+  output.println("Rows/minutes: "+rows);
+  output.println("Vertical spacing: "+spacing+"px");
+  output.println("Source width: "+getSourceWidth()+"px");
+  output.println("Source height: "+getSourceHeight()+"px");
+  output.println("Image size: "+reduxWidth*60+"px X "+(reduxHeight+spacing)*rows+"px");
+  output.println("Print size at 300dpi: "+(reduxWidth*60)/300+" X "+((reduxHeight+spacing)*rows)/300);
+  output.flush(); // Writes the remaining data to the file
+  output.close();
+}
+
+void updateReduxFramePosition() {
+
+  x += reduxWidth;
+        
+  if (x > (reduxWidth*59) ) {
+    x = 0;
+    y += reduxHeight+spacing;
+  }
+
+}
+
+boolean capturingNotFinished() {
+
+  if (movie.time() < movie.duration()) {
+    return true;
+  } else {
+    return false;
+  }
+
+}
+
+
+  
+
+
+void saveRedux() {
+  if(redux != null) {
+    println("Cinema Redux saved to "+reduxFileName);
+    redux.save(reduxFileName);
+  }
+  
+}
+
+void keyPressed() {
+
+  switch(key) {
+    case('1'):
+    console.pause();
+    break;
+    case('2'):
+    console.play();
+    break;
+    case('3'):
+    console.setMax(14);
+    break;
+    case('4'):
+    console.setMax(-1);
+    break;
+    case('5'):
+    console.clear();
+    break;
+  }
+ 
+  if (key == 's') {
+    
+    saveRedux();
+
+  }
+  
+  if (key == 'p') {
+    
+    sendPush("Hello from Cinema Redux");
+  }
+  
+  if (key =='o') {
+    selectFile();
+  }
+  
+  if (key == CODED) {
+    if (keyCode == LEFT) {
+      currentFrame --;
+       movie.play();
+      movie.jump(currentFrame);
+      movie.pause();
+    } else if (keyCode == RIGHT) {
+      currentFrame ++;
+       movie.play();
+       movie.jump(currentFrame);
+       movie.pause();
+    }
+  } 
+  
+   
+}
+
+void sendPush(String theMessage) {
+  
+   
+    println("Sending message: " + theMessage);
+    avviso.push(myEventName, theMessage, priority); 
+  
+   
+}
+
+
+/**
+Digital City Portrait
+Version 1.2
+**/
+
+import processing.opengl.*;
+import processing.pdf.*;
+
+import java.text.SimpleDateFormat;
+import java.io.*;
+import java.util.regex.*;
+import java.util.zip.*;
+import java.util.*;
+import java.text.*;
+import java.math.BigDecimal;
+import java.util.Comparator;
+import java.util.Collections;
+import javax.swing.*; 
+
+import toxi.color.*;
+import toxi.geom.*;
+import toxi.math.*;
+import toxi.util.datatypes.*;
+import toxi.volume.*;
+import toxi.math.waves.*;
+import toxi.geom.*;
+import toxi.geom.mesh.*;
+
+
+PrintWriter logfile;
+
+
+HashMap hm = new HashMap();
+
+HashMap rt = new HashMap();
+
+HashMap pos = new HashMap();
+
+HashMap vogel = new HashMap();
+
+HashMap keywordCount = new HashMap();
+
+
+
+boolean isImageSaved = false;
+
+BufferedReader reader;
+
+int counter = 0;
+
+PFont font;
+
+SimpleDateFormat format = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+
+ArrayList tweets;
+
+int startEpoch;
+
+int endEpoch;
+
+int largestSize = 0;
+
+
+
+
+// circle projection
+
+int distance = 600;
+
+float amount = (24*60*60)*3;
+
+
+
+float inc;
+
+float angle;
+
+float degree;
+
+float a = 0;
+
+
+float objectSize = 2;
+
+color objectColor = color(255, 10);
+
+color eeYellow = color(255, 230, 0);
+
+ArrayList keywords;
+
+float labelX, labelY;
+
+PGraphics pdf;
+
+
+/************
+Main settings
+*************/
+
+int numberOfDays = (24*60*60)*3;
+
+int timeOffset = 0;
+
+String city = "Manchester";
+
+String regionalKeywords = "Man Utd,Man City,Gatwick,MPs";
+
+String filename;
+
+int scaleFactor = 3;
+
+final int ARTWORK_WIDTH = 2500;
+final int ARTWORK_HEIGHT = 5000;
+
+
+
+
+void setup() {
+  size(2500, 5000);
+ 
+  labelX = ARTWORK_WIDTH/2;
+  labelY = 50;
+  inc = TWO_PI/amount;
+  font = loadFont("Futura-Medium-48.vlw"); 
+  textFont(font);
+  textSize(5);
+  textAlign(LEFT);
+  background(0);
+ 
+  fill(255);
+  smooth();
+  tweets = new ArrayList();
+
+  selectDataFile();
+}
+
+void initAppWithPathToDataFile(String path) {
+  setCity(path);
+  setFileName();
+  logfile = createWriter(filename+"_log.txt"); 
+  pdf = createGraphics(ARTWORK_WIDTH, ARTWORK_HEIGHT, PDF, filename+"_background.pdf");
+  pdf.beginDraw();
+  beginRecord(PDF, filename+".pdf");
+  initKeywords();
+  drawKey();
+  readZipFile(path);
+  
+}
+
+void setFileName(){
+
+  filename = "ee_"+city+"_"+MD5(day()+"-"+month()+"-"+year()+"_"+hour()+"."+minute()+"."+second()+"."+millis());
+
+
+}
+
+String MD5(String md5) {
+   try {
+        java.security.MessageDigest md = java.security.MessageDigest.getInstance("MD5");
+        byte[] array = md.digest(md5.getBytes());
+        StringBuffer sb = new StringBuffer();
+        for (int i = 0; i < array.length; ++i) {
+          sb.append(Integer.toHexString((array[i] & 0xFF) | 0x100).substring(1,3));
+       }
+        return sb.toString();
+    } catch (java.security.NoSuchAlgorithmException e) {
+    }
+    return null;
+}
+
+void selectDataFile() {
+  try { 
+    UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
+  } 
+  catch (Exception e) { 
+    e.printStackTrace();
+  }  
+ 
+  final JFileChooser fc = new JFileChooser(); 
+
+  int returnVal = fc.showOpenDialog(this); 
+  if (returnVal == JFileChooser.APPROVE_OPTION) { 
+    File file = fc.getSelectedFile(); 
+    String path = file.getPath();
+    initAppWithPathToDataFile(path);
+  } else {
+    exit();
+  }
+}
+
+void setCity(String path) {
+  
+  String[] dirs = split(path, '/');
+  String file = dirs[dirs.length-1];
+  String[] parts = split(file,"_");
+  city = parts[0];
+  
+}
+
+// Define color palette
+
+
+
+ColorList getColorPalette(int n) {
+  String ranges = "soft";
+  String[] rangesList = split(ranges, ',');
+  ColorList list;
+  ColorTheme t = new ColorTheme("ee");
+  ArrayList <String> names = new ArrayList <String> ();
+  names = NamedColor.getNames();
+  for (int i=0; i < names.size(); i++) {
+    if (random(10)>8) {
+   
+    if (isDarkColor(names.get(i)) == false) {
+    String range = rangesList[int(random(rangesList.length))];
+    String s = range+" "+ names.get(i);
+    //println(s);
+    t.addRange(s, 0.1);
+    }
+    }
+  }
+  list =  t.getColors(n);
+  ColorList filtered = new ColorList();
+  
+  for (int i=0;i < list.size();i++) {
+     TColor c = list.get(i);
+     if (c.brightness() > 0.2) {
+       
+       filtered.add(c);
+     }
+     
+    
+   }
+  
+  return filtered;
+  
+}
+
+boolean isDarkColor(String haystack) {
+ haystack = haystack.toLowerCase();
+ Pattern p = Pattern.compile("\\bdark\\b | \\bgray\\b | \\bblack\\b");
+ Matcher m = p.matcher(haystack);
+ return m.find();
+  
+}
+
+ColorList getRandomColorPalette() {
+  
+  ColorList list = new ColorList();
+  for (int i = 0; i < 100; i++) {
+    list.add(TColor.newRandom());
+  }
+  
+  return list;
+  
+}
+
+ColorList makeColorGradient(float frequency1, float frequency2, float frequency3,float phase1, float phase2, float phase3, float cen, float w, float len)
+  {
+    ColorList list = new ColorList();
+    
+
+    for (int i = 0; i < len; i++)
+    {
+       float r = (1.0/255.0)*floor(sin(frequency1/100*i + phase1) * w + cen);
+       float g = (1.0/255.0)*floor(sin(frequency2/100*i + phase2) * w + cen);
+       float b = (1.0/255.0)*floor(sin(frequency3/100*i + phase3) * w + cen);
+       TColor col = TColor.newRGB(r,g,b);
+        //TColor col = TColor.newRandom();
+       println (r+","+g+","+b);
+       list.add(col);
+       
+    }
+    return list;
+ }
+ 
+ 
+ TColor getColorOfTextFromMD5(String txt) {
+   
+   String md5 = MD5(txt);
+   String hexColor = md5.substring(0, 5);
+   TColor col = TColor.newHex(hexColor);
+   return col;
+ }
+
+
+// keywords 
+
+void addKeywordsUsingXmlFile(String filePath) {
+
+  XML xml;
+  Keyword c;
+  xml = loadXML(filePath);
+  XML[] children = xml.getChildren("keyword");
+  for (int i = 0; i < children.length; i++) {
+    TColor col = TColor.newHex(children[i].getString("color"));
+    c = new Keyword(children[i].getContent(),children[i].getString("hashtag"), col.toARGB(),col);
+    keywords.add(c);
+  }
+  c = null;
+}
+
+/*
+Set the scale factor using the setting in the xml file for each city
+*/
+
+void setScaleUsingXmlFile(String filePath) {
+
+  XML xml;
+  xml = loadXML(filePath);
+  XML[] children = xml.getChildren("scale");
+  scaleFactor = int(children[0].getContent());
+
+}
+
+boolean noKeywordColorDefined(int keywordColor) {
+
+  if (keywordColor == -16777216) {
+
+    return true;
+
+  } else {
+
+    return false;
+
+  }
+}
+
+/*
+Set up the keywords using XML files
+*/
+
+void initKeywords() {
+
+  keywords = new ArrayList();
+ 
+  addKeywordsUsingXmlFile("generalkeywords2013.xml");
+  addKeywordsUsingXmlFile(city.toLowerCase()+"keywords.xml");
+  setScaleUsingXmlFile(city.toLowerCase()+"keywords.xml");
+  
+  ColorList palette = makeColorGradient(3.4, 3.4, 3.4,0, 2,4, 140, 115, 100);
+  ColorList filtered = new ColorList();
+
+   for (int i=0;i < palette.size();i++) {
+     TColor col = palette.get(i);
+     col.adjustHSV(-0.5,-0.4,0);
+    if ((i % (palette.size()/keywords.size()))==0) {
+      filtered.add(col);
+    }
+   }
+  for (int i=0; i < keywords.size(); i++) {
+    
+    Keyword keyword = (Keyword) keywords.get(i);
+    TColor col = filtered.get(i);
+   
+    if (noKeywordColorDefined(keyword.keywordColor)) { 
+      keyword.keywordColor = col.toARGB();
+      keyword.tcolor = col;
+    }
+    
+  }
+
+  
+  saveInfo();
+}
+
+// Draw catergories key
+
+
+
+void drawKey() {
+
+  Collections.sort(keywords, new CustomComparator());
+  textFont(font);
+  textSize(14);
+  textAlign(LEFT);
+  for (int i = 0; i < keywords.size(); i++) { 
+    Keyword c = (Keyword) keywords.get(i);
+
+    float x = ((ARTWORK_WIDTH/2)-((keywords.size()/2)*14))+i*20;
+    float y = ARTWORK_HEIGHT-300;
+    pushMatrix();
+    translate(x, y);
+    
+    pushMatrix();
+
+    //translate(x, y);
+    rotate(radians(90));
+    fill(c.keywordColor, 255);
+    text(c.keyword, 10, 0);
+    Vec2D v = new Vec2D(x+4, y);
+    c.vector = v;
+    popMatrix();
+    popMatrix();
+  }
+}
+
+void drawLabel(float x, float y, String s) {
+  fill(objectColor);
+  textFont(font);
+  textSize(9);
+  textAlign(LEFT);
+  text(s, x, y);
+}
+
+void readZipFile(String filename) {
+
+  try {
+
+    String path = dataPath(filename);
+    ZipFile file = new ZipFile(path);
+    Enumeration entries = file.entries();
+    while (entries.hasMoreElements ()) {
+      ZipEntry entry = (ZipEntry) entries.nextElement();
+      String name = entry.getName();
+      String outputPath = savePath(name);
+      InputStream stream = file.getInputStream(entry);
+      reader = createReader(stream);
+      break;
+      //println(reader.readLine());
+      // println(reader.readLine());
+    }
+  } 
+  catch (IOException e) {
+    e.printStackTrace();
+  }
+}
+
+
+
+
+void draw() {
+  //lights();
+  smooth();
+  for (int j=0; j < 10000; j++) {
+    try {
+
+      String line = reader.readLine();
+      if (line != null) {
+        String[] pieces = splitLine(line);
+
+        if (pieces.length > 14) {
+          try {
+            counter++;
+            println(counter);
+            objectSize = 2;
+            objectColor = color(100, 10);
+            Date date = format.parse(pieces[2]);
+            //println("Original string: " + pieces[2]);
+            // println("Parsed date    : " +date.toString());
+
+            Tweet t = new Tweet(pieces[0], pieces[1], date, pieces[3], pieces[4], pieces[5]);
+            //tweets.add(t);
+            //addToHashMap(str((int)t.epoch));
+
+            if (startEpoch <=0) {
+
+              startEpoch = (int)t.epoch-timeOffset;
+              endEpoch = startEpoch + numberOfDays;
+              println(startEpoch);
+            }
+            float f = int(map(t.epoch, startEpoch, endEpoch, 0, 4320));
+
+
+
+            //objectColor = list.get(int(f)).toARGB();
+
+
+            float mappedSize = map(t.epoch, startEpoch, endEpoch, 25, 1);
+            
+            int _size = 15;
+            float phi = (1 + sqrt(5)) / 2;
+            float r = sqrt(f);
+            float theta = f * ((2 * PI)/(phi*phi));
+            float x = cos(theta) * r * _size;
+            float y = sin(theta) * r * _size;
+            a++;
+
+
+
+            noStroke();
+
+            for (int i = 0; i < keywords.size(); i++) { 
+
+              Keyword c = (Keyword) keywords.get(i);
+
+              if (checkTweetForKeyword(t.tweet, c.keyword) == true || checkTweetForKeyword(t.tweet, c.hashtag) == true) {
+                updateKeywordCountHashMap(c.keyword+" "+c.hashtag);
+                c.isMentioned = true;
+                logfile.println(c.keyword+" "+c.hashtag);
+                color from  = get(int(ARTWORK_WIDTH/2+x), int(ARTWORK_HEIGHT/3+y));
+                color interA = lerpColor(from, c.keywordColor, setLerpWeight());
+                setTweetProperties(c.keyword, c.keywordColor, t,x,y);
+                 float opacity = map(objectSize, 0, 350, 20, 5);
+                 //opacity = 255;
+          // fill(objectColor,0.1);
+            noFill();
+            stroke(objectColor, opacity*10);
+            strokeWeight(1);
+            fill(objectColor, opacity*10);
+           
+            
+            //drawPetals(ARTWORK_WIDTH/2+x, ARTWORK_HEIGHT/2+y,t.tweet,objectSize);
+           // float mSize = map(objectSize,0,663,0,150);
+            //float eSize = mSize*10;
+            
+            
+          float vogelPointSize = map(objectSize,0,255,5,20);
+            Vec2D vec = getPointOnVogel(ARTWORK_WIDTH/2+x, ARTWORK_HEIGHT/2+y);
+            noFill();
+            if (objectSize < 350) {
+              //drawEllipse( vec.x, vec.y, vogelPointSize);
+              drawEllipse( ARTWORK_WIDTH/2+x, ARTWORK_HEIGHT/3+y, objectSize);
+            }
+          
+          
+                if (checkTweetForRetweet(t.tweet) && objectSize%2 == 0) {
+                // if ((f%10)==0) {
+                     drawVertexLine(c.vector, c.keywordColor, ARTWORK_WIDTH/2+x, ARTWORK_HEIGHT/3+y);
+                 }
+                     //vec = new Vec2D(ARTWORK_WIDTH/2+x, ARTWORK_HEIGHT/2+y);
+                     //c.vector = vec;
+                //}
+                break;
+              } else {
+              
+               
+              } 
+            }
+
+           
+              
+            
+            //drawSphere( ARTWORK_WIDTH/2+x, ARTWORK_HEIGHT/2+y, objectSize);
+     
+            if (objectSize > 100) {
+              
+             // drawTimestamp(ARTWORK_WIDTH/2+x, ARTWORK_HEIGHT/2+y,t.niceDate,color(200,100));
+            }
+            
+           
+
+
+
+
+
+            //// println(t.date.toString());
+
+            t = null;
+          } 
+
+          catch(ParseException pe) {
+            // println("ERROR: could not parse date in string");
+          }
+          //println(pieces);
+
+          //println(counter);
+        }
+      } 
+      else {
+        if (!isImageSaved) {
+          isImageSaved = true;
+          saveEverything();
+        }
+      }
+    } 
+    catch (IOException e) {
+
+      e.printStackTrace();
+    }
+  }
+}
+
+float setLerpWeight() {
+ 
+  // return random(100.0)/1000.0;
+  return 0.9;
+}
+
+boolean checkTweetForKeyword(String haystack, String needle) {
+ Pattern p;
+ if (needle != null) {
+  haystack = haystack.toLowerCase()+" ";
+ needle = needle.toLowerCase();
+ p = Pattern.compile("\\b"+needle+"\\b");
+ Matcher m = p.matcher(haystack);
+ return m.find();
+ } else {
+   
+   return false;
+ }
+ /*
+  haystack = " "+haystack+" ";
+  int doesExist = haystack.indexOf(" "+needle+" ");
+  if (doesExist > -1) {
+    return true;
+  } 
+  else {
+    return false;
+  }
+  */
+  
+}
+
+boolean checkTweetForRetweet(String haystack) {
+  haystack = haystack.toLowerCase();
+  int doesExist = haystack.indexOf("rt");
+  if (doesExist > -1) {
+    return true;
+  } 
+  else {
+    return false;
+  }
+  
+}
+
+Vec2D getPointOnVogel(float x, float y) {
+  
+  String hashString = str(x) +":"+ str(y);
+  int currentValue = 1;
+   if (vogel.containsKey(hashString)) {
+    currentValue = Integer.parseInt( vogel.get(hashString).toString() ) ;
+    vogel.put(hashString, currentValue+1);
+  } 
+  else {
+    vogel.put(hashString, currentValue);
+  }
+  
+  int _size = 3;
+  float phi = (1 + sqrt(5)) / 2;
+  float r = sqrt(currentValue);
+  float theta = currentValue * ((2 * PI)/(phi*phi));
+  float _x = x+cos(theta) * r * _size;
+  float _y = y+sin(theta) * r * _size;
+  Vec2D v = new Vec2D(_x,_y);
+  return v;
+  
+}
+
+boolean checkPosHashmap(float x, float y) {
+  
+  String hashString = str(x) +":"+ str(y);
+  int currentValue = 1;
+  if (pos.containsKey(hashString)) {
+    currentValue = Integer.parseInt( pos.get(hashString).toString() ) ;
+    pos.put(hashString, currentValue+1);
+  } 
+  else {
+    pos.put(hashString, currentValue);
+  }
+  
+  if (currentValue < 255) {
+    return true;
+  } else {
+    return false;
+  }
+  
+}
+
+boolean checkSpaceHashmap(String keyword, float x, float y,float s) {
+  
+  String hashString = keyword+str(x) +":"+ str(y)+":"+s;
+  int currentValue = 1;
+  if (pos.containsKey(hashString)) {
+    currentValue = Integer.parseInt( pos.get(hashString).toString() ) ;
+    pos.put(hashString, currentValue+1);
+    return false;
+  } 
+  else {
+    pos.put(hashString, currentValue);
+    return true;
+  }
+  
+}
+
+void setTweetProperties(String keyword, color c, Tweet t, float x, float y) {
+  String hmString = str(x)+":"+str(y);
+  //String hmString = keyword+str((int)t.hours)+str((int)t.minutes)+str((int)t.seconds)+str((int)t.dayInYear)+str(x)+":"+str(y);
+  addToHashMap(hmString);
+  String rtString = t.tweet;
+  addToHashMap(rtString);
+  float foundSize = 10;
+  if (hm.get(hmString) != null) {
+    foundSize =  Integer.parseInt( hm.get(hmString).toString())*scaleFactor;
+  }
+  
+  if (foundSize > largestSize) largestSize = int(foundSize);
+  objectSize = foundSize;//min(255,foundSize);
+  //addToHashMap(hmString);
+  objectColor = c;
+  int rtSize = Integer.parseInt( hm.get(rtString).toString());
+  if (rtSize > 25) {
+    if (rt.get(rtString) == null) {
+      // drawLabel(labelX, labelY, t.tweet);
+      //drawTopTweet(t.tweet);
+      labelY +=20;
+    }
+    addToRetweet(rtString);
+  }
+}
+
+
+
+void addToHashMap(String keyValue) {
+  int currentValue;
+  if (hm.containsKey(keyValue)) {
+    currentValue = Integer.parseInt( hm.get(keyValue).toString() ) ;
+    hm.put(keyValue, currentValue+1);
+  } 
+  else {
+    hm.put(keyValue, 1);
+  }
+}
+
+void updateKeywordCountHashMap(String keyValue) {
+  int currentValue;
+  if (keywordCount.containsKey(keyValue)) {
+    currentValue = Integer.parseInt( keywordCount.get(keyValue).toString() ) ;
+    keywordCount.put(keyValue, currentValue+1);
+  } 
+  else {
+    keywordCount.put(keyValue, 1);
+  }
+}
+
+void addToRetweet(String keyValue) {
+  int currentValue;
+  if (rt.containsKey(keyValue)) {
+    currentValue = Integer.parseInt( rt.get(keyValue).toString() ) ;
+    rt.put(keyValue, currentValue+1);
+  } 
+  else {
+    rt.put(keyValue, 1);
+  }
+}
+
+void drawTimestamp(float x, float y, String s,color c) {
+  if (hm.get(s) == null) {
+  fill(c);
+  textFont(font);
+  textSize(9);
+  textAlign(LEFT);
+  text(s, x, y);
+  }
+  addToHashMap(s);
+  
+}
+
+void drawConnectingLinePDF(Vec2D origin, color c, float x, float y) {
+
+  float opacity = map(objectSize, 0, 255, 50, 1);
+  WavyLine w = new WavyLine(5, 7, 7);
+  Vec2D target = new Vec2D(x, y);
+  pdf.noFill();
+  pdf.stroke(c, opacity);
+  w.drawWavyLinePDF(origin, target.jitter(3, 3), pdf);
+  pdf.noStroke();
+  target = null;
+  w = null;
+}
+
+void drawConnectingLine(Vec2D origin, color c, float x, float y) {
+
+  float opacity = map(objectSize, 0, 255, 50, 1);
+  WavyLine w = new WavyLine(4,70, 70);
+  Vec2D target = new Vec2D(x, y);
+  noFill();
+  stroke(c, opacity);
+  w.drawWavyLine(origin, target.jitter(3, 3));
+  noStroke();
+  target = null;
+  w = null;
+  //pdf.dispose();
+  //pdf.endDraw();
+}
+
+void drawVertexLine(Vec2D origin,color c,float x, float y) {
+  Vec2D target = new Vec2D(x,y);
+  
+  pdf.noFill();
+  float opacity = map(objectSize, 0, 255, 5, 1);
+  pdf.stroke(c, opacity);
+  if (x <= ARTWORK_WIDTH/2) {
+ pdf.beginShape();
+pdf.curveVertex(-ARTWORK_WIDTH, origin.y*2);
+// bottom target
+pdf.curveVertex(origin.x, origin.y);
+//top target
+pdf.curveVertex(target.x,  target.y);
+pdf.curveVertex(ARTWORK_WIDTH*2, 0);
+
+pdf.endShape();
+  } else {
+pdf.beginShape();
+pdf.curveVertex(ARTWORK_WIDTH*2, origin.y*2);
+// bottom target
+pdf.curveVertex(origin.x, origin.y);
+//top target
+pdf.curveVertex(target.x,  target.y);
+pdf.curveVertex(-ARTWORK_WIDTH, 0);
+
+pdf.endShape();
+  }
+  
+}
+
+void drawTopTweet(String line) {
+  Vec2D origin = new Vec2D(0, 0);
+  Vec2D target = new Vec2D(ARTWORK_WIDTH/2, ARTWORK_HEIGHT/2);
+  WavyLine w = new WavyLine(10, 7, 7);
+  fill(255);
+  w.drawWavyLine(origin, target.jitter(3, 3));
+}
+
+void drawEllipse(float x, float y, float s) {
+
+  ellipse( x, y, s, s);
+}
+
+void drawSphere(float x, float y, float s) {
+  pushMatrix();
+  translate(x, y, 0);
+  sphere(s);
+  popMatrix();
+}
+
+void drawPetals(float x, float y, String line, float s) {
+  char[] c = line.toCharArray();
+  CircleDistribution circle = new CircleDistribution(c.length, int(s));
+  for (int i=0; i < c.length; i++) {
+    pushMatrix();
+    translate(x, y);
+    pushMatrix();
+
+    PVector p = circle.getPoint(i);
+    translate(p.x, p.y);
+    rotate(circle.getAngle(i));
+    textSize(min(9, s));
+    text(c[i], 0, 0);
+    popMatrix();
+    popMatrix();
+  }
+
+  circle = null;
+}
+
+
+
+
+String[] splitLine(String line) {
+
+
+  char[] c= line.toCharArray();
+  ArrayList pieces = new ArrayList();
+  int prev = 0;
+  boolean insideQuote = false;
+  for (int i=0; i < c.length; i++) {
+    if (c[i] == ',') {
+      if (!insideQuote) {
+        String s = new String(c, prev, i-prev).trim();
+        pieces.add(s);
+        prev = i+1;
+      }
+    } 
+    else if (c[i] == '\"') {
+      insideQuote = !insideQuote;
+    }
+  }
+  if (prev != c.length) {
+    String s = new String(c, prev, c.length - prev).trim();
+    pieces.add(s);
+  }
+  String[] outgoing = new String[pieces.size()];
+  pieces.toArray(outgoing);
+  scrubQuotes(outgoing);
+  return outgoing;
+}
+
+void scrubQuotes(String[] array) {
+
+  for (int i=0; i < array.length; i++) {
+    if (array[i].length() > 2) {
+      if (array[i].startsWith("\"") && array[i].endsWith("\"")) {
+        array[i] = array[i].substring(1, array[i].length()-1);
+      }
+    }
+    array[i] = array[i].replaceAll("\"\"", "\"");
+  }
+}
+
+void saveInfo() {
+  PrintWriter output;
+  output = createWriter(filename+"_info.txt"); 
+  output.println("EE");
+  output.println("_______________________________________________________________________________");
+  output.println("");
+  for (int i = 0; i < keywords.size(); i++) { 
+
+    Keyword c = (Keyword) keywords.get(i);
+    output.println(c.keyword+": "+c.keywordColor);
+    output.println("R: "+red(c.keywordColor)+" G: "+green(c.keywordColor) +" B: "+blue(c.keywordColor));
+   
+                                      
+  }
+  output.println("_______________________________________________________________________________");
+  output.println("");
+  output.flush(); 
+  output.close();
+}
+
+void saveEverything() {
+println(hour()+"."+minute()+"."+second()+" SAVING...");
+  pdf.dispose();
+  pdf.endDraw();
+
+  saveFrame(filename+"_####.tif");
+  endRecord();
+  println(hour()+"."+minute()+"."+second()+" DONE!");
+  logfile.println("STATS");
+  logfile.println("------------------------------------------------------------------------------");
+  logfile.println("Total number of Tweets: "+counter);
+  
+  Iterator i = keywordCount.entrySet().iterator();  // Get an iterator
+  while (i.hasNext()) {
+    Map.Entry me = (Map.Entry)i.next();
+    int wordCount = Integer.parseInt( me.getValue().toString() );
+    float percentageOfTweets = (100.0/counter)*wordCount;
+    logfile.println(me.getKey() + " total number of matches: "+wordCount+" ("+round(percentageOfTweets, 3, BigDecimal.ROUND_HALF_UP)+"%)");
+  }
+  logfile.println("------------------------------------------------------------------------------");
+  logfile.flush(); 
+  logfile.close();
+   println("Largest Size: "+largestSize);
+  exit();
+ 
+}
+
+public static double round(double unrounded, int precision, int roundingMode)
+{
+    BigDecimal bd = new BigDecimal(unrounded);
+    BigDecimal rounded = bd.setScale(precision, roundingMode);
+    return rounded.doubleValue();
+}
+
+
+void mousePressed() {
+  saveFrame(filename+"_####.tif");
+}
+
+public class CustomComparator implements Comparator<Keyword> {
+    @Override
+    public int compare(Keyword o1, Keyword o2) {
+      Integer val1 = (Integer) o1.keywordColor;
+      Integer val2 = (Integer) o2.keywordColor;
+        return val1.compareTo(val2);
+    }
+}
+
+ import processing.pdf.*;
+
+/*
+James Bond Kills by Brendan Dawes
+http://brendandawes.com/projects/jamesbondkills/
+
+CSV import method by che-wei wang.
+
+Requires CSV export from data provided by Guardian Data Store.
+https://docs.google.com/spreadsheet/ccc?key=0AonYZs4MzlZbdEgyUE9aQktJR0ZEWFlURGlYODNISHc#gid=1
+
+Press mouse to save a PDF.
+*/
+
+String lines[];
+String [][] csv;
+int csvWidth=0;
+
+PFont font;
+
+PGraphics g, m;
+
+
+
+boolean record = false;
+
+final int LARGE_CIRCLE_VERTICAL_SPACING = 106;
+final int SMALL_CIRCLE_SPACING = 53;
+final int LARGE_CIRCLE_WIDTH =  104;
+final int SMALL_CIRCLE_WIDTH = 50;
+
+int START_Y;
+
+final color LARGE_CIRCLE_FILL = color(184,28,28);
+final color SMALL_CIRCLE_FILL = color(38,126,121);
+final color LABEL_COLOR = color(75);
+
+
+void setup() {
+
+  size(3000, 1200);
+  rectMode(LEFT);
+  ellipseMode(LEFT);
+  START_Y = height;
+  font = loadFont("TradeGothic-Bold-48.vlw"); 
+  textFont(font);
+  parseBondKills();
+}
+
+
+void draw() {
+if (record) {
+  
+   beginRecord(PDF, "jamesbond-####.pdf"); 
+  
+}
+  rectMode(LEFT);
+  ellipseMode(LEFT);
+  background(150);
+  smooth();
+  noStroke();
+  textSize(12);
+  textAlign(LEFT);
+  int x = 50;
+  int y = START_Y;
+  
+  
+  for (int i=1; i < csv.length; i++) {
+    int xInc = SMALL_CIRCLE_SPACING;
+    int bondKillScore = int(csv[i][4]);
+    if (bondHasKilled(bondKillScore) && isOfficialMovie(csv[i][1])) {
+      int offset = 30;
+      for (int c=0; c < ceil(bondKillScore/10); c++) {
+         y -= LARGE_CIRCLE_VERTICAL_SPACING;
+        drawNode(x,y,LARGE_CIRCLE_FILL,LARGE_CIRCLE_WIDTH);
+        xInc = 84;
+      }
+      y -= SMALL_CIRCLE_SPACING;
+
+      if (ceil(bondKillScore/10) > 0) {
+        x+=SMALL_CIRCLE_WIDTH/2;
+      } 
+      
+    
+      for (int j=0; j < bondKillScore%10; j++) {
+        
+        
+        drawNode(x,y,SMALL_CIRCLE_FILL,SMALL_CIRCLE_WIDTH);
+        y -= SMALL_CIRCLE_SPACING;
+        
+      }
+      drawLabel(x+offset,y+25,csv[i][0].toUpperCase());
+      x += xInc;
+      y = START_Y;
+    }
+  }
+  
+  if (record) {
+    endRecord();
+    record = false;
+  }
+}
+
+void drawNode(int x, int y, color fillColor, int circleSize) {
+
+  fill(fillColor);
+  ellipse(x,y,circleSize,circleSize);
+
+}
+
+void drawLabel(int x, int y, String label) {
+
+  pushMatrix();
+    translate(x, y);
+    rotate(radians(-90));
+    fill(LABEL_COLOR );
+    text(label, 0, 0);
+  popMatrix();
+
+
+}
+
+boolean isOfficialMovie(String test){
+
+  return(test.equals("Official"));
+}
+
+boolean bondHasKilled(int n) {
+
+  if (n > 0) {
+
+    return true;
+
+  } else {
+
+    return false;
+  }
+}
+
+void parseBondKills() {
+
+  lines = loadStrings("bondkills.csv");
+
+  //calculate max width of csv file
+  for (int i=0; i < lines.length; i++) {
+    String [] chars=split(lines[i], ',');
+    if (chars.length>csvWidth) {
+      csvWidth=chars.length;
+    }
+  }
+
+  //create csv array based on # of rows and columns in csv file
+  csv = new String [lines.length][csvWidth];
+
+  //parse values into 2d array
+  for (int i=0; i < lines.length; i++) {
+    String [] temp = new String [lines.length];
+    temp= split(lines[i], ',');
+    for (int j=0; j < temp.length; j++) {
+      csv[i][j]=temp[j];
+    }
+  }
+ 
+}
+
+void mousePressed() {
+
+  record = true;
+  
+}
+
+import java.text.SimpleDateFormat;
+import java.io.*;
+import java.util.regex.*;
+import java.util.zip.*;
+import java.util.*;
+import java.text.*;
+import javax.swing.*; 
+
+import toxi.color.*;
+import toxi.geom.*;
+import toxi.math.*;
+import toxi.util.datatypes.*;
+
+import ddf.minim.*;
+import ddf.minim.analysis.*;
+
+import unlekker.util.*;
+import unlekker.modelbuilder.*;
+import unlekker.modelbuilder.filter.*;
+import unlekker.modelbuilder.UVertexList;
+
+
+import wblut.math.*;
+import wblut.processing.*;
+import wblut.core.*;
+import wblut.hemesh.*;
+import wblut.geom.*;
+import processing.opengl.*;
+import processing.pdf.*;
+
+
+import javax.swing.*; 
+import java.io.*;
+
+Minim minim;
+AudioPlayer song;
+FFT fft;
+AudioMetaData meta;
+
+UNav3D nav;
+
+UGeometry model;
+
+Boolean isPaused = true;
+Boolean showEdges = true;
+Boolean showFaces = true;
+Boolean showText = true;
+Boolean isReady = false;
+
+Boolean record = false;
+
+float bufferSize;
+
+HE_Mesh mesh;
+WB_Render render;
+HE_Mesh originalMesh;
+
+ArrayList meshes;
+int currentMesh;
+int numOfColors = 250;
+
+BufferedReader reader;
+
+SimpleDateFormat format = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+
+Date endDate;
+Date startDate;
+
+long startEpoch;
+long endEpoch;
+
+int counter = 0;
+
+float maxScale = 10;
+
+ArrayList tweets;
+
+PFont metaBold;
+
+void setup() {
+  size(1280,720, OPENGL);
+  //textMode(SHAPE);
+  minim = new Minim(this);
+  palette = getColorPalette(numOfColors);
+  meshes = new ArrayList();
+  metaBold = createFont("Variable-Bold",12);
+  textFont(metaBold, 12); 
+  selectInput("Select a file to process:", "fileSelected");
+  nav=new UNav3D(this);
+  nav.unregisterKeyEvents();
+  nav.trans.set(width/2,height/2,0);
+  smooth();
+}
+
+
+
+
+
+
+void addBaseMesh() {
+
+ 
+  HEC_Sphere creator=new HEC_Sphere();
+  creator.setRadius(200); 
+  creator.setUFacets(16);
+  creator.setVFacets(16);
+  mesh=new HE_Mesh(creator); 
+  originalMesh = mesh.get();
+  HET_Diagnosis.validate(mesh);
+  render=new WB_Render(this);
+  meshes = new ArrayList();
+
+}
+
+void addBaseMeshBox() {
+
+  HEC_Cube creator=new HEC_Cube();
+  creator.setEdge(200); 
+  //alternatively 
+  //creator.setRadius(200);
+  //creator.setInnerRadius(200);// radius of sphere inscribed in cube
+  //creator.setOuterRadius(200);// radius of sphere circumscribing cube
+  //creator.setMidRadius(200);// radius of sphere tangential to edges
+  creator.setWidthSegments(5).setHeightSegments(5).setDepthSegments(5);
+  mesh=new HE_Mesh(creator); 
+  HET_Diagnosis.validate(mesh);
+  HES_Planar subdividor=new HES_Planar();
+  
+  subdividor.setRandom(true);// Randomize center edge and center face points 
+  subdividor.setRange(0.5);// Random range of center offset, from 0 (no random) to 1(fully random)
+  subdividor.setSeed(1234L);// Seed of random point generator
+  subdividor.setKeepTriangles(true);// Subdivide triangles into 4 triangles instead of 3 quads
+  mesh.subdivide(subdividor,1);
+  originalMesh = mesh.get();
+  render=new WB_Render(this);
+}
+
+void addBaseMeshGrid() {
+
+   //Array of all vertices
+
+  int vAmount = 13;
+  int  fAmount = vAmount-1;
+  float[][] vertices=new float[vAmount*vAmount][3];
+  int index = 0;
+  for (int j = 0; j < vAmount; j++) {
+    for (int i = 0; i < vAmount; i++) {
+      vertices[index][0] =-200+ i * 40;
+      vertices[index][1] =-200+j * 40;
+      vertices[index][2] = 1;
+
+      index++;
+    }
+  }
+  //Array of faces. Each face is an arry of vertex indices;
+  index = 0;
+  int[][] faces = new int[fAmount*fAmount][];
+  for (int j = 0; j < fAmount; j++) {
+    for (int i = 0; i < fAmount; i++) {
+      faces[index]=new int[4];
+      faces[index][0] = i + vAmount * j;
+      faces[index][1] = i + 1 + vAmount * j;
+      faces[index][2] = i + 1 + vAmount * (j + 1);
+      faces[index][3] = i + vAmount * (j + 1);
+      index++;
+    }
+  }
+
+  //HEC_Facelist uses the vertices and the indexed faces to create a mesh with all connectivity.
+  HEC_FromFacelist creator=new HEC_FromFacelist();
+  creator.setVertices(vertices);
+  creator.setFaces(faces);
+  creator.setDuplicate(false);//check for duplicate points, by default true 
+
+  mesh=new HE_Mesh(creator);
+  HEM_Wireframe modifier=new HEM_Wireframe();
+  modifier.setStrutRadius(6);// strut radius
+  modifier.setStrutFacets(6);// number of faces in the struts, min 3, max whatever blows up the CPU
+ // modifier.setMaximumStrutOffset(20);// limit the joint radius by decreasing the strut radius where necessary. Joint offset is added after this limitation.
+  modifier.setAngleOffset(1);// rotate the struts by a fraction of a facet. 0 is no rotation, 1 is a rotation over a full facet. More noticeable for low number of facets.
+  modifier.setTaper(true);// allow struts to have different radii at each end?
+  //mesh.modify(modifier);
+HET_Diagnosis.validate(mesh);
+originalMesh = mesh.get();
+  render=new WB_Render(this);
+  
+}
+
+void fileSelected(File selection) {
+  if (selection == null) {
+    exit();
+  } else {
+    tweets = new ArrayList();
+    readZipFile(selection.getAbsolutePath());
+    addBaseMeshBox();
+    isReady = true;
+  }
+}
+
+
+
+PVector getCartesian(float x, float y, float z) {
+  
+   float a = (float) (x * cos(z));
+   float xx = (float) (a * cos(y));
+   float yy = (float) (x * sin(z));
+   float zz = (float) (a * sin(y));
+   x = xx;
+   y = yy;
+   z = zz;
+   PVector p = new PVector(x,y,z);
+   return p;
+  
+  
+}
+
+int getNumberOfMinutes(Date date) {
+
+  SimpleDateFormat ft = new SimpleDateFormat ("H");
+    int hours =  int(ft.format(date));
+    ft = new SimpleDateFormat ("m");
+    int minutes = int(ft.format(date));
+    return (hours*60)+minutes;
+}
+
+
+
+void addMeshToMeshesArray(HE_Mesh m) {
+
+  HE_Mesh copiedMesh = m.get();
+  meshes.add(copiedMesh);
+  currentMesh = meshes.size()-1;
+
+}
+
+void smoothMesh(int level) {
+
+  mesh = convertMeshToCatmullClark(mesh,level);
+
+}
+
+void prevMesh() {
+  currentMesh  = max(0,currentMesh-1);
+  HE_Mesh m = (HE_Mesh) meshes.get(currentMesh);
+  mesh = m.get();
+
+}
+
+void nextMesh() {
+
+  currentMesh  = min(meshes.size()-1,currentMesh+1);
+  HE_Mesh m = (HE_Mesh) meshes.get(currentMesh);
+  mesh = m.get();
+}
+
+
+
+
+
+HE_Mesh convertMeshToSweepTube(HE_Mesh m) {
+
+  WB_BSpline C=new WB_BSpline(m.getVerticesAsPoint(), 4);
+  HEC_SweepTube creator=new HEC_SweepTube();
+  creator.setCurve(C);//curve should be a WB_BSpline
+  creator.setRadius(30);
+  creator.setSteps(100);
+  creator.setFacets(16);
+  creator.setCap(true, true); // Cap start, cap end?
+  HE_Mesh sweep = new HE_Mesh();
+  sweep = new HE_Mesh(creator); 
+  return sweep;
+}
+
+void convertMeshToWireFrame(){
+
+  HEM_Wireframe modifier=new HEM_Wireframe();
+  modifier.setStrutRadius(10);// strut radius
+  modifier.setStrutFacets(6);// number of faces in the struts, min 3, max whatever blows up the CPU
+ // modifier.setMaximumStrutOffset(20);// limit the joint radius by decreasing the strut radius where necessary. Joint offset is added after this limitation.
+  modifier.setAngleOffset(0);// rotate the struts by a fraction of a facet. 0 is no rotation, 1 is a rotation over a full facet. More noticeable for low number of facets.
+  modifier.setTaper(true);// allow struts to have different radii at each end?
+  mesh.modify(modifier);
+  
+}
+
+HE_Mesh convertMeshToVoronoi(HE_Mesh m) {
+
+  HE_Mesh container=new HE_Mesh(new HEC_Cube().setEdge(400).setWidthSegments(4).setHeightSegments(3).setDepthSegments(2)); 
+  float[][] f = m.getVerticesAsFloat();
+  float points[][] = new float[50][3];
+  for(int i=0;i<f.length;i++) {
+    int index = (int)map(i,0,f.length,0,50);
+    points[index][0]=f[i][0];
+    points[index][1]=f[i][1];
+    points[index][2]=f[i][2];
+  }
+  HEMC_VoronoiCells multiCreator=new HEMC_VoronoiCells().setPoints(points).setN(50).setContainer(container).setOffset(0);
+  HE_Mesh[] cells=multiCreator.create();
+  boolean[] isCellOn=new boolean[cells.length];
+  for(int i=0;i<cells.length;i++){
+   isCellOn[i]=(random(100)<25); 
+  }
+  HEC_FromVoronoiCells creator=new HEC_FromVoronoiCells();
+ creator.setCells(cells);// output of HEMC_VoronoiCells, 
+ creator.setActive(isCellOn);// boolean array
+ 
+ HE_Mesh v = new HE_Mesh(creator); 
+ v.cleanUnusedElementsByFace();
+ v.capHoles();
+ return v;
+}
+
+HE_Mesh convertMeshToCatmullClark(HE_Mesh m) {
+
+  HES_CatmullClark subdividor=new HES_CatmullClark();
+  subdividor.setKeepBoundary(true);// preserve position of vertices on a surface boundary
+  subdividor.setKeepEdges(true);// preserve position of vertices on edge of selection (only useful if using subdivideSelected)
+  HE_Mesh cat = new HE_Mesh();
+  cat = m;
+  return cat.subdivide(subdividor,1);
+
+}
+
+HE_Mesh convertMeshToCatmullClark(HE_Mesh m, int level) {
+
+  HES_CatmullClark subdividor=new HES_CatmullClark();
+  subdividor.setKeepBoundary(true);// preserve position of vertices on a surface boundary
+  subdividor.setKeepEdges(true);// preserve position of vertices on edge of selection (only useful if using subdivideSelected)
+  HE_Mesh cat = new HE_Mesh();
+  cat = m;
+  return cat.subdivide(subdividor,level);
+
+}
+
+HE_Mesh convertMeshToLattice(HE_Mesh m) {
+
+  HEM_Lattice modifier=new HEM_Lattice();
+  modifier.setWidth(12);// desired width of struts
+  modifier.setDepth(10);// depth of struts
+  modifier.setThresholdAngle(1.5*HALF_PI);// treat edges sharper than this angle as hard edges
+  modifier.setFuse(true);// try to fuse planar adjacent planar faces created by the extrude
+  modifier.setFuseAngle(0.05*HALF_PI);// threshold angle to be considered coplanar
+  m.modify(modifier);
+
+  return m;
+}
+
+HE_Mesh extrudeMesh(HE_Mesh m) {
+
+HEM_Extrude extrude = new HEM_Extrude().setDistance(20);
+m.modify(extrude);
+
+return m;
+
+}
+
+
+
+
+void draw() {
+
+  if (record) {
+    textMode(SHAPE);
+
+    beginRaw(PDF, "twitterdata.pdf");
+  }
+
+  if (isReady) {
+  background(0);
+  lights();
+  processData();
+ 
+ 
+  nav.doTransforms();
+  if (showText) {
+  for (int i=0; i < tweets.size(); i++) {
+
+  Tweet t = (Tweet) tweets.get(i);
+  stroke(255,0,0);
+  line(t.coords.x*2, t.coords.y*2,t.coords.z*1.5, t.coords.x, t.coords.y,t.coords.z);
+
+   pushMatrix();
+   noStroke();
+   textAlign(LEFT, CENTER);
+    fill(255,0,0);
+    translate(t.coords.x*2, t.coords.y*2,t.coords.z*1.5);
+    text(t.phrase, 0, 0);
+    fill(255,0,0);
+    text(t.date, 0, 12);
+    //ellipse(0, 0, 3, 3);
+   popMatrix();
+
+ }
+}
+  noStroke();
+  if (showFaces) {
+  WB_Point3d[] faces = mesh.getFaceCenters();
+  for (int i=0; i < faces.length; i++) {
+    color c = palette.get(i%numOfColors).toARGB();
+    fill(c);
+    render.drawFaces(i,mesh);
+  }
+}
+  stroke(255);
+  if (showEdges) {
+    render.drawEdges(mesh);
+  } 
+
+}
+
+ if (record) {
+    endRaw();
+    record = false;
+    textMode(MODEL);
+  }
+}
+
+void processData() {
+
+  try {
+  String line = reader.readLine();
+      if (line != null) {
+        String[] pieces = splitLine(line);
+        
+        if (pieces.length > 7) {
+          try {
+            Date date = format.parse(pieces[5]);
+            if (startDate == null) {
+              startDate = date;
+              startEpoch = startDate.getTime()/1000;
+            }
+            counter++;
+            //println("counter: "+counter);
+            String text = pieces[7];
+            int numberOfMinutes = getNumberOfMinutes(date);
+            //float mappedX = map(numberOfMinutes,0,1440,BORDER,width-BORDER);
+            //float snappedXpos = floor( mappedX / FONT_SIZE ) * FONT_SIZE ;
+            long epoch = date.getTime()/1000;
+
+           
+            //float mappedY = map(epoch, startEpoch, endEpoch, BORDER, height-BORDER);
+            //mesh = originalMesh.get();
+            WB_Point3d[] points=mesh.getVerticesAsPoint(); 
+         
+            int index = (int)map(epoch,startEpoch,endEpoch,0,points.length);
+            //float amp = map(numberOfMinutes,0,1440,1,maxScale);
+            float amp = map(numberOfMinutes,0,1440,1,1.01);
+            
+            
+            if (index < points.length) {
+              if (epoch%70 == 0) {
+                Tweet tweet = new Tweet(pieces[7],pieces[5],(float)points[index].x, (float)points[index].y,(float)points[index].z);
+                tweets.add(tweet);
+            }
+            points[index] = points[index].scale(1.01);
+              //points[index].z = points[index].z + amp;
+            
+          }
+          
+
+          } catch(ParseException pe) {
+            
+          }
+      }
+    } else {
+
+      
+    }
+} catch (IOException e) {
+
+      e.printStackTrace();
+    }
+  }
+
+void saveSTL() {
+  
+  String fileName = "twitterdata";
+  saveFrame(fileName+".png");
+  HET_Diagnosis.validate(mesh);
+  HET_Export.saveToSTL(mesh,sketchPath(fileName+".stl"),1.0);
+
+}
+
+void saveOBJ() {
+
+  String fileName = meta.author()+"_"+meta.title()+"_"+song.position();
+  HET_Diagnosis.validate(mesh);
+  HET_Export.saveToOBJ(mesh,sketchPath(fileName+".obj"));
+
+}
+
+void keyPressed() {
+   if (key == CODED) {
+    if (keyCode == LEFT) {
+      //pauseSong();
+      prevMesh();
+    } 
+    if (keyCode == RIGHT) {
+      //pauseSong();
+      nextMesh();
+    } 
+  }
+
+if (key == '1') {
+  convertMeshToWireFrame();
+}
+
+if (key == '2') {
+  smoothMesh(1);
+  
+}
+
+if (key == '3') {
+  mesh = convertMeshToLattice(mesh);
+}
+
+if (key == '4') {
+  mesh = convertMeshToSweepTube(mesh);
+}
+
+
+
+ 
+  if(key=='o') {
+
+   
+    selectInput("Select a file to process:", "fileSelected");
+
+  }
+  if(key=='s') {
+    record = true;
+    
+    
+    saveSTL();
+
+    //saveOBJ();
+
+  }
+
+  if (key=='p') {
+
+    saveFrame("twitterdata-####.png");
+  }
+
+  if(key=='e') {
+    
+    if (showEdges) {
+      showEdges = false;
+    } else {
+      showEdges = true;
+    }
+
+  }
+
+  if(key=='f') {
+    
+    if (showFaces) {
+      showFaces = false;
+    } else {
+      showFaces = true;
+    }
+
+  }
+
+  if(key=='t') {
+    
+    if (showText) {
+      showText = false;
+    } else {
+      showText = true;
+    }
+
+  }
+
+}
+
+void readZipFile(String filename) {
+
+  try {
+
+    String path = dataPath(filename);
+    ZipFile file = new ZipFile(path);
+    Enumeration entries = file.entries();
+    while (entries.hasMoreElements ()) {
+      ZipEntry entry = (ZipEntry) entries.nextElement();
+      String name = entry.getName();
+      String outputPath = savePath(name);
+      InputStream stream = file.getInputStream(entry);
+      setEndDateUsingLastLineOfCSV(stream);
+      stream = file.getInputStream(entry);
+      reader = createReader(stream);
+      break;
+    }
+  } 
+  catch (IOException e) {
+    e.printStackTrace();
+  }
+}
+
+void setEndDateUsingLastLineOfCSV(InputStream stream) {
+
+  String lines[] = loadStrings(stream);
+  println(lines[lines.length-1]);
+  String[] pieces = splitLine(lines[lines.length-1]);
+  try {
+    endDate = format.parse(pieces[5]);
+    endEpoch = endDate.getTime()/1000;
+  } catch (ParseException pe) {
+    println("Couldn't parse end date");
+    exit();
+  }
+  
+
+}
+
+void setEndDateWithDate(String d) {
+try {
+  endDate = format.parse(d);
+  endEpoch = endDate.getTime()/1000;
+  } catch (ParseException pe) {
+    println("Couldn't parse end date");
+    exit();
+  }
+}
+
+// Ben Fry's CSV parser from the book Visualising Data
+
+String[] splitLine(String line) {
+
+
+  char[] c= line.toCharArray();
+  ArrayList pieces = new ArrayList();
+  int prev = 0;
+  boolean insideQuote = false;
+  for (int i=0; i < c.length; i++) {
+    if (c[i] == ',') {
+      if (!insideQuote) {
+        String s = new String(c, prev, i-prev).trim();
+        pieces.add(s);
+        prev = i+1;
+      }
+    } 
+    else if (c[i] == '\"') {
+      insideQuote = !insideQuote;
+    }
+  }
+  if (prev != c.length) {
+    String s = new String(c, prev, c.length - prev).trim();
+    pieces.add(s);
+  }
+  String[] outgoing = new String[pieces.size()];
+  pieces.toArray(outgoing);
+  scrubQuotes(outgoing);
+  return outgoing;
+}
+
+void scrubQuotes(String[] array) {
+
+  for (int i=0; i < array.length; i++) {
+    if (array[i].length() > 2) {
+      if (array[i].startsWith("\"") && array[i].endsWith("\"")) {
+        array[i] = array[i].substring(1, array[i].length()-1);
+      }
+    }
+    array[i] = array[i].replaceAll("\"\"", "\"");
+  }
+}
+import ddf.minim.*;
+import ddf.minim.analysis.*;
+
+import unlekker.util.*;
+import unlekker.modelbuilder.*;
+import unlekker.modelbuilder.filter.*;
+import unlekker.modelbuilder.UVertexList;
+
+
+import wblut.math.*;
+import wblut.processing.*;
+import wblut.core.*;
+import wblut.hemesh.*;
+import wblut.geom.*;
+import processing.opengl.*;
+
+
+import javax.swing.*; 
+import java.io.*;
+
+import geomerative.*;
+
+RFont f;
+RShape grp;
+RPoint[] points;
+
+Minim minim;
+AudioPlayer song;
+FFT fft;
+AudioMetaData meta;
+
+UNav3D nav;
+
+UGeometry model;
+
+Boolean isPaused = true;
+
+float bufferSize;
+
+WB_BSpline C;
+WB_Point3d[] wpoints;
+HE_Mesh mesh;
+WB_Render render;
+
+int layerCount = 0;
+
+void setup() {
+  size(1280,720, OPENGL);
+
+
+  minim = new Minim(this);
+
+  RG.init(this);
+  
+
+  selectInput("Select a file to process:", "fileSelected");
+
+  nav=new UNav3D(this);
+  nav.trans.set(width/2,height/2,0);
+
+  addBaseMesh();
+  
+  //build();
+  smooth();
+}
+
+
+
+
+
+
+void addBaseMesh() {
+
+mesh = new HE_Mesh();
+HET_Diagnosis.validate(mesh);
+render=new WB_Render(this);
+  
+
+}
+
+void fileSelected(File selection) {
+  if (selection == null) {
+    exit();
+  } else {
+    initSongWithFile(selection.getAbsolutePath());
+  }
+}
+
+void initSongWithFile(String file){
+  loadFile(file);
+  meta = song.getMetaData();
+  bufferSize = song.bufferSize();
+  //playSong();
+  layerCount = 0;
+  grp = RG.getText("BEIJING", "DinMedium.ttf", 272, CENTER);
+  grp = RG.centerIn(grp, g);
+  RG.setPolygonizer(RG.UNIFORMLENGTH);
+  RG.setPolygonizerLength(5);
+  points = grp.getPoints();
+  initFFT();
+}
+
+void initFFT() {
+
+  fft = new FFT(song.bufferSize(), song.sampleRate());
+}
+
+int songLength() {
+
+  return song.length();
+
+}
+
+int songPosition() {
+
+  return song.position();
+}
+
+void loadFile(String file){
+
+  song = minim.loadFile(file, 512);
+}
+
+void playSong() {
+
+  song.play();
+
+}
+
+PVector getCartesian(float x, float y, float z) {
+  
+   float a = (float) (x * cos(z));
+   float xx = (float) (a * cos(y));
+   float yy = (float) (x * sin(z));
+   float zz = (float) (a * sin(y));
+   x = xx;
+   y = yy;
+   z = zz;
+   PVector p = new PVector(x,y,z);
+   return p;
+  
+  
+}
+
+void processSong() {
+
+  //mesh = new HE_Mesh();
+
+  wpoints=new WB_Point3d[points.length];
+  for (int i=0;i<points.length;i++) {
+    int ampIndex = (int)map(i,0,points.length,0,bufferSize);
+    float amp = song.mix.get(ampIndex)*1000;
+    wpoints[i]=new WB_Point3d(points[i].x,points[i].y,amp);
+  }
+  C=new WB_BSpline(wpoints, 4);
+
+  HEC_SweepTube creator=new HEC_SweepTube();
+  creator.setCurve(C);//curve should be a WB_BSpline
+  creator.setRadius(50);
+  creator.setSteps(100);
+  creator.setFacets(8);
+  creator.setCap(true, true); // Cap start, cap end?
+  mesh=new HE_Mesh(creator); 
+
+
+
+  /*
+  for (int i=0; i < points.length; i++) {
+      int ampIndex = (int)map(i,0,points.length,0,bufferSize);
+      float amp = song.mix.get(ampIndex)*1000;
+      HEC_Box b=new HEC_Box();
+      b.setWidth(30).setHeight(max(10,amp)).setDepth(30); 
+      b.setWidthSegments(1).setHeightSegments(1).setDepthSegments(1);
+      HE_Mesh boxMesh=new HE_Mesh(b); 
+      boxMesh.move(points[i].x,points[i].y,amp/2);
+      mesh.add(boxMesh);
+    }
+
+layerCount++;
+  */
+  
+  //mesh = new HE_Mesh();
+/*
+HE_Mesh[] panels;
+int numpanels;
+  HEMC_Panelizer multiCreator=new HEMC_Panelizer();
+  multiCreator.setMesh(tempMesh);
+  multiCreator.setThickness(2);
+  panels=multiCreator.create();
+  numpanels=panels.length;
+
+for(int i=0;i<numpanels;i++) {
+    mesh.add(panels[i]);
+  } 
+
+  HEM_Smooth modifier=new HEM_Smooth();
+  modifier.setIterations(1);
+  modifier.setAutoRescale(true);// rescale mesh to original extents
+//mesh.modify(modifier);
+   HES_Planar subdividor=new HES_Planar();
+  
+  subdividor.setRandom(true);// Randomize center edge and center face points 
+  subdividor.setRange(0.5);// Random range of center offset, from 0 (no random) to 1(fully random)
+  subdividor.setSeed(1234L);// Seed of random point generator
+  subdividor.setKeepTriangles(true);// Subdivide triangles into 4 triangles instead of 3 quads
+  */
+  //mesh.subdivide(subdividor,1);
+/*
+  HES_Smooth subdividor=new HES_Smooth();
+  subdividor.setWeight(1,1);// weight of original and neighboring vertices, default (1.0,1.0)
+  subdividor.setKeepBoundary(true);// preserve position of vertices on a surface boundary
+  subdividor.setKeepEdges(true);// preserve position of vertices on edge of selection (only useful if using subdivideSelected)
+  //mesh.subdivide(subdividor,3);
+*/
+  //mesh = baseMesh;
+
+  
+
+  //layerMesh.move(0,0,frameCount/10);
+  //mesh.add(layerMesh);
+
+  HES_CatmullClark subdividor=new HES_CatmullClark();
+   subdividor.setKeepBoundary(true);// preserve position of vertices on a surface boundary
+  subdividor.setKeepEdges(true);// preserve position of vertices on edge of selection (only useful if using subdivideSelected)
+ 
+  mesh.subdivide(subdividor,1);
+/*
+ HES_Smooth subdividor=new HES_Smooth();
+  subdividor.setWeight(5,1);// weight of original and neighboring vertices, default (1.0,1.0)
+  subdividor.setKeepBoundary(true);// preserve position of vertices on a surface boundary
+  subdividor.setKeepEdges(true);// preserve position of vertices on edge of selection (only useful if using subdivideSelected)
+  //mesh.subdivide(subdividor,3);
+*/
+/*
+  HES_Smooth subdividor=new HES_Smooth();
+  subdividor.setWeight(5,1);// weight of original and neighboring vertices, default (1.0,1.0)
+  subdividor.setKeepBoundary(true);// preserve position of vertices on a surface boundary
+  subdividor.setKeepEdges(true);// preserve position of vertices on edge of selection (only useful if using subdivideSelected)
+  //mesh.subdivide(subdividor,2);
+  */
+    
+}
+
+int getPercentageProcessed() {
+  float p = map(songPosition(),0,songLength()-1,1,100);
+  return ceil(p);
+  
+}
+
+
+
+
+
+
+
+void draw() {
+ if (song != null) {
+   if (song.isPlaying()) {
+     int percentageDone = getPercentageProcessed();
+     if (percentageDone >= 99) {
+        println("saving stl");
+        model.writeSTL(this, "Model_"+millis()+".stl"); 
+        exit();
+     } else  {
+   
+   
+          processSong();
+        }
+        
+    }
+}
+
+   background(120);
+  lights();
+  nav.doTransforms();
+  noStroke();
+  //fill(200,0,100);
+  //render.drawFaces(mesh);
+   WB_Point3d[] faces = mesh.getFaceCenters();
+  for (int i=0; i < faces.length; i++) {
+    float r = map(i,0,faces.length,25,255);
+    fill(r,0,100);
+  render.drawFaces(i,mesh);
+}
+  stroke(0);
+  render.drawEdges(mesh);
+}
+
+void keyPressed() {
+  if(key=='p') {
+    println("p");
+    if (isPaused) {
+      println("play song");
+      //song.rewind();
+      playSong();
+      isPaused = false;
+    } else {
+      
+      song.pause();
+      isPaused = true;
+    }
+  }
+  if(key=='o') {
+    song.pause();
+      isPaused = true;
+    selectInput("Select a file to process:", "fileSelected");
+
+  }
+  if(key=='s') {
+  saveFrame(meta.author()+"_"+meta.title()+"_"+song.position()+".png");
+  WB_Line L=new WB_Line(100,0,0,100,0,1);
+  HEM_Twist twistModifier=new HEM_Twist();
+  twistModifier.setTwistAxis(L);
+  twistModifier.setAngleFactor(1);
+  //mesh.modify(twistModifier);
+  HEM_Wireframe modifier=new HEM_Wireframe();
+  modifier.setStrutRadius(10);// strut radius
+  modifier.setStrutFacets(6);// number of faces in the struts, min 3, max whatever blows up the CPU
+  modifier.setMaximumStrutOffset(20);// limit the joint radius by decreasing the strut radius where necessary. Joint offset is added after this limitation.
+  modifier.setAngleOffset(1);// rotate the struts by a fraction of a facet. 0 is no rotation, 1 is a rotation over a full facet. More noticeable for low number of facets.
+  modifier.setTaper(true);// allow struts to have different radii at each end?
+  //mesh.modify(modifier);
+  /*
+  HEM_Extrude modifier=new HEM_Extrude();
+   
+  //extrude modifier parameters
+  modifier.setDistance(20);// extrusion distance, set to 0 for inset faces - (I could contrle this and add a mathematical equation to it MS)
+  modifier.setRelative(false);// treat chamfer as relative to face size or as absolute value
+  modifier.setChamfer(4);// chamfer for non-hard edges
+  modifier.setHardEdgeChamfer(100);// chamfer for hard edges
+  modifier.setThresholdAngle(1.5*HALF_PI);// treat edges sharper than this angle as hard edges
+  modifier.setFuse(true);// try to fuse planar adjacent planar faces created by the extrude
+  modifier.setFuseAngle(0.05*HALF_PI);// threshold angle to be considered coplanar
+  modifier.setPeak(true);//if absolute chamfer is too large for face, create a peak on the face
+  //mesh.modify(modifier);
+  */
+  HET_Diagnosis.validate(mesh);
+  HET_Export.saveToSTL(mesh,sketchPath(meta.author()+"_"+meta.title()+"_"+song.position()+".stl"),1.0);
+
+  }
+}
+
+  
+  
+
+
+ 
+
+
